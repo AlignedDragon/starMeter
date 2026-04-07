@@ -1,5 +1,5 @@
-# AMAP
-As Much data As Possible
+# Starmeter
+Image analysis software to automatically estimate dimensions of synthesized nanostars.
 
 ## Task
 
