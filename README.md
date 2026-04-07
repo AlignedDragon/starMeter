@@ -1,4 +1,4 @@
-# Starmeter
+# starMeter
 Image analysis software to automatically estimate dimensions of synthesized nanostars.
 
 ## Task
