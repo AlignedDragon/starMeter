@@ -29,15 +29,16 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=2)
     ap.add_argument("--lr", type=float, default=5e-5)
     ap.add_argument("--num-workers", type=int, default=4)
-    ap.add_argument("--crop", type=int, default=1024)
+    ap.add_argument("--size", type=int, default=1024,
+                    help="downscale the full image to size² (no tiling)")
     ap.add_argument("--samples-per-epoch", type=int, default=600)
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     processor = Mask2FormerImageProcessor.from_pretrained(args.model)
-    # Force the processor to keep crops square and at a sensible resolution.
-    processor.size = {"shortest_edge": args.crop, "longest_edge": args.crop}
+    # Force the processor to keep images square at the chosen resolution.
+    processor.size = {"shortest_edge": args.size, "longest_edge": args.size}
     processor.do_resize = True
 
     model = Mask2FormerForUniversalSegmentation.from_pretrained(
@@ -49,7 +50,7 @@ def main() -> None:
 
     ds = Mask2FormerDataset(
         args.coco, args.images_dir, processor,
-        crop=args.crop, samples_per_epoch=args.samples_per_epoch,
+        size=args.size, samples_per_epoch=args.samples_per_epoch,
     )
     dl = DataLoader(
         ds, batch_size=args.batch_size, shuffle=True,

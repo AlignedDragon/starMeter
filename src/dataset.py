@@ -30,6 +30,35 @@ def polygons_to_mask(polygons: Iterable[Iterable[float]], h: int, w: int) -> np.
     return np.asarray(m, dtype=np.uint8)
 
 
+SCALE_BAR_FRAC = 0.10  # bottom band that always contains the burned-in scale bar
+
+
+def crop_scale_bar(img: Image.Image, frac: float = SCALE_BAR_FRAC) -> Image.Image:
+    """Remove the burned-in "100 nm" scale bar by cropping to a bar-free square.
+
+    Left in place the bar (a) looks like a dark nanostar branch and (b) becomes a
+    spatial/orientation landmark once flip/rot90 augmentation moves it around.
+    A flat fill would be just as learnable — and worse where a star overlaps the
+    bar — so we physically crop it out instead, accepting the loss of any object
+    in the discarded region.
+
+    We crop to a SQUARE of side ``H*(1-frac)``, trimming the bottom ``frac`` band
+    (which holds the bar) and an equal strip off the right to keep it square. A
+    square is essential: if we kept the image rectangular, flip/rot90 would change
+    its aspect ratio, forcing orientation-dependent padding downstream — and that
+    padding's position would itself leak the rotation to the model. With a square,
+    rot90 introduces no padding at all.
+
+    The crop keeps the top-left origin, so every polygon/centroid (x, y) stays
+    valid; clipped instances simply fall outside the canvas. Apply BEFORE
+    augmentation, identically at train and inference time. Annotations in the
+    discarded region are dropped, so annotators should ignore it.
+    """
+    W, H = img.size
+    side = min(int(H * (1 - frac)), W)
+    return img.crop((0, 0, side, side))
+
+
 def core_point(polygons: Iterable[Iterable[float]], bbox: list[float]) -> tuple[float, float]:
     """Pole of inaccessibility: pixel inside the polygon farthest from any
     boundary, found via distance transform on a tight crop. This sits in the
