@@ -12,9 +12,10 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import Mask2FormerForUniversalSegmentation, Mask2FormerImageProcessor
+from transformers import Mask2FormerImageProcessor
 
 from m2f_dataset import Mask2FormerDataset, m2f_collate
+from m2f_denoise import Mask2FormerDN
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -32,6 +33,10 @@ def main() -> None:
     ap.add_argument("--size", type=int, default=1024,
                     help="downscale the full image to size² (no tiling)")
     ap.add_argument("--samples-per-epoch", type=int, default=600)
+    ap.add_argument("--dn", action="store_true",
+                    help="enable mask-denoising training (see docs/mask_denoising.md)")
+    ap.add_argument("--lambda-p", type=float, default=0.2,
+                    help="fraction of GT mask pixels flipped to build noised dn masks")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -41,7 +46,7 @@ def main() -> None:
     processor.size = {"shortest_edge": args.size, "longest_edge": args.size}
     processor.do_resize = True
 
-    model = Mask2FormerForUniversalSegmentation.from_pretrained(
+    model = Mask2FormerDN.from_pretrained(
         args.model,
         id2label={0: "nanostar"},
         label2id={"nanostar": 0},
@@ -51,6 +56,7 @@ def main() -> None:
     ds = Mask2FormerDataset(
         args.coco, args.images_dir, processor,
         size=args.size, samples_per_epoch=args.samples_per_epoch,
+        dn_lambda=args.lambda_p if args.dn else 0.0,
     )
     dl = DataLoader(
         ds, batch_size=args.batch_size, shuffle=True,
@@ -69,6 +75,8 @@ def main() -> None:
                 pixel_mask=batch["pixel_mask"].to(device),
                 mask_labels=[m.to(device) for m in batch["mask_labels"]],
                 class_labels=[c.to(device) for c in batch["class_labels"]],
+                dn_masks=([d.to(device) for d in batch["dn_masks"]]
+                          if args.dn else None),
             )
             loss = out.loss
             opt.zero_grad(); loss.backward(); opt.step()
@@ -77,7 +85,9 @@ def main() -> None:
         print(f"epoch {epoch + 1}: avg loss {total / len(dl):.4f}")
 
     args.out.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(args.out)
+    # Strip the training-only dn params so the checkpoint is a plain Mask2Former
+    # that m2f_pipeline.py loads unchanged.
+    model.export_base().save_pretrained(args.out)
     processor.save_pretrained(args.out)
     print(f"saved -> {args.out}")
 

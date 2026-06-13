@@ -51,6 +51,7 @@ class Mask2FormerDataset(Dataset):
         size: int = 1024,
         samples_per_epoch: int | None = None,
         min_pixels: int = 256,
+        dn_lambda: float = 0.0,
     ):
         with Path(coco_json).open() as f:
             coco = json.load(f)
@@ -60,6 +61,10 @@ class Mask2FormerDataset(Dataset):
         self.size = size
         self.min_pixels = min_pixels
         self.samples_per_epoch = samples_per_epoch or len(self.images)
+        # >0 enables mask-denoising targets: a noised copy of every GT mask with
+        # `dn_lambda` of its pixels flipped (see docs/mask_denoising.md). Aligned
+        # 1:1 with the processor's mask_labels / class_labels.
+        self.dn_lambda = dn_lambda
 
         self.anns_by_img: dict[int, list[dict]] = {}
         for a in coco["annotations"]:
@@ -105,18 +110,29 @@ class Mask2FormerDataset(Dataset):
             instance_id_to_semantic_id=instance_id_to_semantic_id,
             return_tensors="pt",
         )
-        return {
+        out = {
             "pixel_values": enc["pixel_values"][0],
             "pixel_mask": enc["pixel_mask"][0],
             "mask_labels": enc["mask_labels"][0],
             "class_labels": enc["class_labels"][0],
         }
+        if self.dn_lambda > 0:
+            # Noise the SAME masks the loss uses (processor output), so the noised
+            # copy stays aligned with mask_labels / class_labels in order and
+            # resolution. XOR flips ~dn_lambda of pixels in both directions.
+            gt = out["mask_labels"] > 0.5
+            flip = torch.rand_like(out["mask_labels"]) < self.dn_lambda
+            out["dn_masks"] = (gt ^ flip).float()
+        return out
 
 
 def m2f_collate(batch: list[dict]) -> dict:
-    return {
+    out = {
         "pixel_values": torch.stack([b["pixel_values"] for b in batch]),
         "pixel_mask": torch.stack([b["pixel_mask"] for b in batch]),
         "mask_labels": [b["mask_labels"] for b in batch],
         "class_labels": [b["class_labels"] for b in batch],
     }
+    if "dn_masks" in batch[0]:
+        out["dn_masks"] = [b["dn_masks"] for b in batch]
+    return out
