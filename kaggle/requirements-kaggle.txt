@@ -1,0 +1,5 @@
+# Extra installs for Kaggle on top of its preinstalled torch / opencv / pycocotools.
+# transformers is pinned because src/m2f_denoise.py hooks into Mask2Former decoder
+# internals validated against this version (plain Mask2Former works on newer too).
+transformers==4.41.0
+scipy>=1.10

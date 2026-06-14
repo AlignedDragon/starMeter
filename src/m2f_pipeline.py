@@ -43,6 +43,39 @@ def mask_to_polygons(mask: np.ndarray) -> tuple[list[list[float]], list[float], 
     return [[x0, y0, x0 + w, y0, x0 + w, y0 + h, x0, y0 + h]], bbox, area
 
 
+def overlapping_instances(out, size, score_thresh, mask_thresh=0.5):
+    """Per-query thresholded masks, allowing instances to OVERLAP.
+
+    `post_process_instance_segmentation` argmaxes every pixel to a single
+    instance, so where two nanostar branches cross the shared pixels are awarded
+    to one star and carved out of the other. For overlapping nanostars we instead
+    threshold each kept query's own mask, so every star keeps its full branches
+    through the crossings. Returns a list of (mask uint8 (H,W), score).
+    """
+    H, W = size
+    class_logits = out.class_queries_logits[0]            # (Q, num_labels + 1)
+    mask_logits = out.masks_queries_logits[0]             # (Q, h, w)
+    scores = class_logits.softmax(-1)
+    num_labels = scores.shape[-1] - 1                     # last column = "no object"
+    fg, _ = scores[:, :num_labels].max(-1)                # foreground prob per query
+    keep = fg >= score_thresh
+    if int(keep.sum()) == 0:
+        return []
+    masks = torch.nn.functional.interpolate(
+        mask_logits[keep].unsqueeze(0), size=(H, W), mode="bilinear", align_corners=False,
+    )[0].sigmoid()                                        # (k, H, W) in native coords
+    out_list = []
+    for prob, s in zip(masks, fg[keep]):
+        binm = prob > mask_thresh
+        n = int(binm.sum())
+        if n == 0:
+            continue
+        # mask-aware score: class prob weighted by mask confidence (as in detectron2)
+        mask_score = float((prob[binm]).mean())
+        out_list.append((binm.cpu().numpy().astype(np.uint8), float(s) * mask_score))
+    return out_list
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ckpt", type=Path, default=REPO / "checkpoints/mask2former-nanostar")
@@ -54,12 +87,17 @@ def main() -> None:
     ap.add_argument("--score-thresh", type=float, default=0.5)
     ap.add_argument("--min-area", type=int, default=256,
                     help="min mask area in native (cropped) pixels")
+    ap.add_argument("--no-overlap", action="store_true",
+                    help="use argmax label map (mutually exclusive masks) instead of "
+                         "overlapping per-query masks; overlaps are kept by default")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     processor = Mask2FormerImageProcessor.from_pretrained(args.ckpt)
-    processor.size = {"shortest_edge": args.size, "longest_edge": args.size}
+    # Exact square resize (see m2f_train.py: shortest_edge==longest_edge is
+    # rejected for square inputs).
+    processor.size = {"height": args.size, "width": args.size}
     processor.do_resize = True
     model = Mask2FormerForUniversalSegmentation.from_pretrained(args.ckpt).to(device).eval()
 
@@ -76,14 +114,19 @@ def main() -> None:
         enc = processor(images=img, return_tensors="pt").to(device)
         with torch.no_grad():
             out = model(**enc)
-        # target_sizes in cropped native coords → masks land in the source frame.
-        res = processor.post_process_instance_segmentation(
-            out, target_sizes=[(H, W)], threshold=args.score_thresh,
-        )[0]
-        seg = res["segmentation"].cpu().numpy()  # (H, W) instance ids, -1 = none
 
-        for sinfo in res["segments_info"]:
-            m = (seg == sinfo["id"]).astype(np.uint8)
+        # target_sizes in cropped native coords → masks land in the source frame.
+        if args.no_overlap:
+            res = processor.post_process_instance_segmentation(
+                out, target_sizes=[(H, W)], threshold=args.score_thresh,
+            )[0]
+            seg = res["segmentation"].cpu().numpy()  # (H, W) instance ids, -1 = none
+            instances = [((seg == s["id"]).astype(np.uint8), float(s["score"]))
+                         for s in res["segments_info"]]
+        else:
+            instances = overlapping_instances(out, (H, W), args.score_thresh)
+
+        for m, score in instances:
             if int(m.sum()) < args.min_area:
                 continue
             polys, bbox_p, area = mask_to_polygons(m)
@@ -97,7 +140,7 @@ def main() -> None:
                 "bbox": bbox_p,
                 "area": area,
                 "iscrowd": 0,
-                "score": float(sinfo["score"]),
+                "score": score,
             })
             ann_id += 1
 

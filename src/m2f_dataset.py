@@ -108,7 +108,8 @@ class Mask2FormerDataset(Dataset):
             images=[img],
             segmentation_maps=[seg_map],
             instance_id_to_semantic_id=instance_id_to_semantic_id,
-            return_tensors="pt",
+            ignore_index=0,  # 0 = background; without this the processor looks up
+            return_tensors="pt",  # instance_id_to_semantic_id[0] and raises KeyError
         )
         out = {
             "pixel_values": enc["pixel_values"][0],

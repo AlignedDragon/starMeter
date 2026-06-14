@@ -42,8 +42,10 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     processor = Mask2FormerImageProcessor.from_pretrained(args.model)
-    # Force the processor to keep images square at the chosen resolution.
-    processor.size = {"shortest_edge": args.size, "longest_edge": args.size}
+    # Force the processor to keep images square at the chosen resolution. Use
+    # height/width (exact resize); shortest_edge==longest_edge is rejected for
+    # square inputs ("max_size must be strictly greater than ... smaller edge").
+    processor.size = {"height": args.size, "width": args.size}
     processor.do_resize = True
 
     model = Mask2FormerDN.from_pretrained(
@@ -65,6 +67,13 @@ def main() -> None:
     )
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
+    def save() -> None:
+        # Strip the training-only dn params so the checkpoint is a plain
+        # Mask2Former that m2f_pipeline.py loads unchanged.
+        args.out.mkdir(parents=True, exist_ok=True)
+        model.export_base().save_pretrained(args.out)
+        processor.save_pretrained(args.out)
+
     model.train()
     for epoch in range(args.epochs):
         total = 0.0
@@ -82,14 +91,12 @@ def main() -> None:
             opt.zero_grad(); loss.backward(); opt.step()
             total += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.4f}")
-        print(f"epoch {epoch + 1}: avg loss {total / len(dl):.4f}")
+        # Save after every epoch so a long unattended run that times out or
+        # crashes still leaves the latest usable checkpoint in args.out.
+        save()
+        print(f"epoch {epoch + 1}: avg loss {total / len(dl):.4f}  (saved -> {args.out})")
 
-    args.out.mkdir(parents=True, exist_ok=True)
-    # Strip the training-only dn params so the checkpoint is a plain Mask2Former
-    # that m2f_pipeline.py loads unchanged.
-    model.export_base().save_pretrained(args.out)
-    processor.save_pretrained(args.out)
-    print(f"saved -> {args.out}")
+    print(f"done -> {args.out}")
 
 
 if __name__ == "__main__":
