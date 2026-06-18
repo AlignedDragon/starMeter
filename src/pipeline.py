@@ -54,7 +54,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--centroid-ckpt", type=Path, default=REPO / "checkpoints/centroid.pt")
     ap.add_argument("--sam-ckpt", type=Path, default=REPO / "checkpoints/sam3-nanostar")
-    ap.add_argument("--input-json", type=Path, default=REPO / "data/annotations/eval.json")
+    ap.add_argument("--input-json", type=Path, default=REPO / "data/annotations/valid.json")
     ap.add_argument("--images-dir", type=Path, default=REPO / "data/images")
     ap.add_argument("--out", type=Path, default=REPO / "data/annotations/predictions.json")
     ap.add_argument("--negatives", type=int, default=4)

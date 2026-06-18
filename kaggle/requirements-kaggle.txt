@@ -1,5 +1,7 @@
-# Extra installs for Kaggle on top of its preinstalled torch / opencv / pycocotools.
-# transformers is pinned because src/m2f_denoise.py hooks into Mask2Former decoder
-# internals validated against this version (plain Mask2Former works on newer too).
-transformers==4.41.0
+# Extra installs for the self-contained Kaggle notebook, on top of Kaggle's
+# preinstalled torch / opencv / pycocotools / scipy. The notebook trains a PLAIN
+# Mask2Former (no denoising decoder hooks), so transformers is not version-pinned
+# — any recent release with the Mask2Former image processor works.
+transformers>=4.45
+pycocotools>=2.0.7
 scipy>=1.10

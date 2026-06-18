@@ -37,21 +37,17 @@ def _poly_area(poly: list[float]) -> float:
     return abs(a) / 2.0
 
 
-def _keep_polys(segmentation: list[list[float]], min_area: float, min_frac: float) -> list[list[float]]:
-    """Drop small disconnected fragments of an instance: keep a polygon only if it
-    is at least `min_area` px² AND at least `min_frac` of the instance's largest
-    polygon. The main blob always survives; tiny satellite specks are removed."""
+def _keep_polys(segmentation: list[list[float]]) -> list[list[float]]:
+    """Keep only the single largest polygon of an instance. Disconnected fragments
+    are dropped downstream anyway, so an instance is reduced to its main blob."""
     polys = [p for p in segmentation if len(p) >= 6]
     if not polys:
         return []
-    areas = [_poly_area(p) for p in polys]
-    main = max(areas)
-    return [p for p, a in zip(polys, areas) if a >= min_area and a >= min_frac * main]
+    return [max(polys, key=_poly_area)]
 
 
 def build_via3(images: list[dict], anns_by_img: dict[int, list[dict]],
-               score_thresh: float, label: str, pname: str,
-               min_region_area: float, min_region_frac: float) -> tuple[dict, int]:
+               score_thresh: float, label: str, pname: str) -> tuple[dict, int]:
     project = {
         "pid": "__VIA_PROJECT_ID__",
         "rev": "__VIA_PROJECT_REV_ID__",
@@ -93,7 +89,7 @@ def build_via3(images: list[dict], anns_by_img: dict[int, list[dict]],
         for ann in anns_by_img.get(im["id"], []):
             if ann.get("score", 1.0) < score_thresh:
                 continue
-            for poly in _keep_polys(ann.get("segmentation", []), min_region_area, min_region_frac):
+            for poly in _keep_polys(ann.get("segmentation", [])):
                 xy = [7] + [round(float(c), 1) for c in poly]  # 7 == polygon
                 metadata[f"{fid}_{ri}"] = {
                     "vid": fid, "flg": 0, "z": [], "xy": xy, "av": {"1": label},
@@ -108,15 +104,10 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--pred", type=Path, default=REPO / "data/annotations/predictions_m2f.json",
                    help="COCO predictions json from src/m2f_pipeline.py")
-    p.add_argument("--out", type=Path, default=REPO / "data/annotations/predictions_via.json",
+    p.add_argument("--out", type=Path, default=Path.home() / "Downloads/predictions_via.json",
                    help="VIA3 project json to open for correction")
     p.add_argument("--score-thresh", type=float, default=0.5,
                    help="drop predictions below this score before exporting")
-    p.add_argument("--min-region-area", type=float, default=300,
-                   help="drop polygons smaller than this (px², native crop coords)")
-    p.add_argument("--min-region-frac", type=float, default=0.05,
-                   help="drop a polygon if it is smaller than this fraction of its "
-                        "instance's largest polygon (removes small disconnected fragments)")
     p.add_argument("--label", default="nanostar")
     p.add_argument("--pname", default="starmeter model-assisted")
     args = p.parse_args()
@@ -127,7 +118,7 @@ def main() -> None:
         anns_by_img.setdefault(a["image_id"], []).append(a)
 
     via, kept = build_via3(coco["images"], anns_by_img, args.score_thresh,
-                           args.label, args.pname, args.min_region_area, args.min_region_frac)
+                           args.label, args.pname)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(via))
     print(f"{len(coco['images'])} images, {kept} predicted regions (score>={args.score_thresh}) "

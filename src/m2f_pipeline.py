@@ -1,11 +1,11 @@
 """End-to-end Mask2Former inference: image → downscaled M2F → COCO predictions.
 
-The full image is cropped to a bar-free square (crop_scale_bar) and run through
-Mask2Former in one pass (nanostars are few and large, so no tiling is needed);
-the processor downscales the square to ~`size`. Predicted masks come back in the
-cropped frame's coordinates, which share the source image's top-left origin.
-This matches how m2f_dataset.py builds training samples. Output is a COCO-format
-JSON readable by utils/visualize_segmentations.py.
+The full 4096² image is run through Mask2Former in one pass (nanostars are few
+and large, so no tiling is needed); the processor downscales it to ~`size`.
+Predicted masks come back in the source frame's coordinates. Training crops out
+the burned-in scale bar (see m2f_dataset.py), but inference runs on the whole
+frame so predictions cover it edge-to-edge. Output is a COCO-format JSON
+readable by utils/visualize_segmentations.py.
 """
 from __future__ import annotations
 
@@ -18,8 +18,6 @@ import torch
 from PIL import Image
 from tqdm import tqdm
 from transformers import Mask2FormerForUniversalSegmentation, Mask2FormerImageProcessor
-
-from dataset import crop_scale_bar
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -79,14 +77,14 @@ def overlapping_instances(out, size, score_thresh, mask_thresh=0.5):
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ckpt", type=Path, default=REPO / "checkpoints/mask2former-nanostar")
-    ap.add_argument("--input-json", type=Path, default=REPO / "data/annotations/eval.json")
+    ap.add_argument("--input-json", type=Path, default=REPO / "data/annotations/valid.json")
     ap.add_argument("--images-dir", type=Path, default=REPO / "data/images")
     ap.add_argument("--out", type=Path, default=REPO / "data/annotations/predictions_m2f.json")
     ap.add_argument("--size", type=int, default=1024,
                     help="processor resizes the image so its longest edge is size (no tiling)")
     ap.add_argument("--score-thresh", type=float, default=0.5)
     ap.add_argument("--min-area", type=int, default=256,
-                    help="min mask area in native (cropped) pixels")
+                    help="min mask area in native (full-frame) pixels")
     ap.add_argument("--no-overlap", action="store_true",
                     help="use argmax label map (mutually exclusive masks) instead of "
                          "overlapping per-query masks; overlaps are kept by default")
@@ -108,14 +106,13 @@ def main() -> None:
     ann_id = 1
     for info in tqdm(coco_in["images"], desc="m2f"):
         img = Image.open(args.images_dir / info["file_name"]).convert("RGB")
-        img = crop_scale_bar(img)  # match training: drop the scale-bar band
-        W, H = img.size  # cropped dims; top-left origin matches the source image
+        W, H = img.size  # full 4096² frame; predictions land in source coords
 
         enc = processor(images=img, return_tensors="pt").to(device)
         with torch.no_grad():
             out = model(**enc)
 
-        # target_sizes in cropped native coords → masks land in the source frame.
+        # target_sizes in full native coords → masks land in the source frame.
         if args.no_overlap:
             res = processor.post_process_instance_segmentation(
                 out, target_sizes=[(H, W)], threshold=args.score_thresh,
