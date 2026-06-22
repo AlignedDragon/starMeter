@@ -1,6 +1,10 @@
 # starMeter
 Image analysis software to automatically estimate dimensions of synthesized nanostars.
 
+## Model
+
+The trained model is available on Hugging Face: [kalandarX/starMeter-model](https://huggingface.co/kalandarX/starMeter-model)
+
 ## Task
 
 
@@ -27,10 +31,10 @@ As of April 2024, the segmentation and quantitative analysis of nanostars not ov
 ### Example nanostar TEM image:
 ![image](https://github.com/user-attachments/assets/abfb9a6e-3293-495d-8901-b9cdcb377a72)
 
-### Expected output from the model:
+### Ground truth:
 ![Screenshot from 2024-10-28 11-41-04](https://github.com/user-attachments/assets/5e0b07fb-7e07-4cb5-8b8e-ad9bb7d70a69)
 
-### Result obtained from detectron2 for instance segmentation:
+### Model prediction:
 ![r](https://github.com/user-attachments/assets/edbd1924-e27f-43c5-8f4d-e9953090f262)
 
 
