@@ -1,9 +1,6 @@
-# starMeter
+# starMeter [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-FFD21E?style=for-the-badge)](https://huggingface.co/kalandarX/starMeter-model)
 Image analysis software to automatically estimate dimensions of synthesized nanostars.
 
-## Model
-
-The trained model is available on Hugging Face: [kalandarX/starMeter-model](https://huggingface.co/kalandarX/starMeter-model)
 
 ## Task
 
@@ -22,6 +19,15 @@ The trained model is available on Hugging Face: [kalandarX/starMeter-model](http
 
 
 ## Results
+
+As of June 2026, the segmentation stack has moved from Detectron2 to a transformer-based **Mask2Former** (Swin-Tiny) instance-segmentation model built on HuggingFace `transformers`, with end-to-end training ([src/m2f_train.py](src/m2f_train.py)) and full-frame 4096² inference ([src/m2f_pipeline.py](src/m2f_pipeline.py)). Highlights of the work done since:
+
+- **Overlap-aware training.** A training-only **mask-denoising** branch (`Mask2FormerDN`, [src/m2f_denoise.py](src/m2f_denoise.py)) was ported from the reference paper (Mask2Former + denoising, in the spirit of DN-DETR / MP-Former) to better separate touching nanostars; at inference the model stays plain Mask2Former. See [docs/mask_denoising.md](docs/mask_denoising.md). **SAM 3** was also evaluated as an alternative segmenter.
+- **Dataset.** The hand-annotated set grew to **~400 TEM frames** (366 train / 41 val, COCO format). Preprocessing crops out the burned-in scale bar and rotation hints; augmentation uses horizontal flips and every-30° rotations.
+- **Reproducible training.** Self-contained **Kaggle notebooks** ([kaggle/](kaggle/)) train both the plain and denoising variants and report per-epoch validation loss + COCO mask AP each epoch.
+- **Quantitative analysis.** A first **branch-length** measurement ([utils/branch_length.py](utils/branch_length.py)) skeletonizes each mask, removes the central hub where arms meet, then linearizes the remaining arms to measure their lengths.
+- **Human-in-the-loop annotation.** Model predictions are converted back to **VIA** format ([utils/predictions_to_via.py](utils/predictions_to_via.py)) for correction and re-annotation, closing the labeling loop; visualization utilities render segmentations, centroids, and side-by-side comparisons.
+- **Released artifacts.** The trained model is published on Hugging Face: [kalandarX/starMeter-model](https://huggingface.co/kalandarX/starMeter-model).
 
 As of December 2024, segmentation of overlapping nanostars has been successfully completed for cases that are not overly complex, even for the human eye. The next steps involve training with more advanced pre-trained models and larger, augmented datasets. The current results were obtained using Detectron2 with a ResNeXt-101 backbone. Future plans include experimenting with YOLOv8 for instance segmentation and considering the use of an additional U-Net model as an expert to refine the segmentation further.
 
