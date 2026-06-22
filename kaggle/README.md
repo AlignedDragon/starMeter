@@ -84,6 +84,29 @@ Everything lands in `/kaggle/working` (downloadable from the **Output** tab):
   and raise `GRAD_ACCUM`.
 - **Internet Off:** add the backbone as a Kaggle model/dataset and set `MODEL` to
   its local `/kaggle/input/...` path.
-- **Denoising** (`src/m2f_denoise.py`) is intentionally **not** in this notebook —
-  it hooks Mask2Former decoder internals against a pinned `transformers` version.
-  Use the repo scripts (`src/m2f_train.py --dn`) if you want it.
+- **Denoising** (`src/m2f_denoise.py`) is **not** in `kaggle_train.ipynb` — it hooks
+  Mask2Former decoder internals against a pinned `transformers` version. To train with
+  denoising on Kaggle use **`kaggle_train_dn.ipynb`** instead (see below).
+
+---
+
+# Training WITH mask-denoising — `kaggle_train_dn.ipynb`
+
+`kaggle_train_dn.ipynb` trains `Mask2FormerDN` (the `--dn` path) and keeps the same
+per-epoch **val loss + COCO mask AP** reporting. Two differences from the plain notebook:
+
+1. **Pinned `transformers==4.41.2`.** The denoising decoder reimplements the Mask2Former
+   decoder loop against `transformers` 4.41 internals (`decoder.mask_predictor`,
+   `tm.queries_features`, `self.criterion`, …); newer releases move/rename those. Cell 2
+   installs the exact version and asserts it.
+2. **You also upload the repo's `src/` folder** as a second (tiny) Kaggle Dataset. The
+   notebook imports `Mask2FormerDN` (`m2f_denoise.py`) and `Mask2FormerDataset`
+   (`m2f_dataset.py`, which needs `dataset.py` for `polygons_to_mask`) from it rather than
+   inlining — the dn decoder is too entangled with HF internals to inline safely.
+
+So the uploads are **two datasets**: the data (images + annotations, as above) **and** `src/`.
+Attach both, set **Accelerator = GPU**, **Internet = On**, upload the notebook, Run All.
+Knobs are the same plus `DN_LAMBDA` (default `0.2`, the fraction of GT mask pixels flipped to
+build the noised dn masks — matches `m2f_train.py --lambda-p`). The checkpoint saved each epoch
+is a **plain** Mask2Former (`export_base()` strips the dn-only params), so inference via
+`src/m2f_pipeline.py` is unchanged.
