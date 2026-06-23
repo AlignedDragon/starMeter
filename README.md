@@ -47,5 +47,8 @@ As of April 2024, the segmentation and quantitative analysis of nanostars not ov
 ### Final result obtainable after processing:
 ![image](https://github.com/user-attachments/assets/eb791378-036b-4e09-a0f3-34ce915e98c7)
 
+### Future work
+- improve data augmentation
+
 
 
